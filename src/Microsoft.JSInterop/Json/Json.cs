@@ -21,6 +21,9 @@ namespace Microsoft.JSInterop
         public static string Serialize(object value)
             => SimpleJson.SimpleJson.SerializeObject(value);
 
+        internal static string Serialize(object value, SimpleJson.IJsonSerializerStrategy serializerStrategy)
+            => SimpleJson.SimpleJson.SerializeObject(value, serializerStrategy);
+
         /// <summary>
         /// Deserializes the JSON string, creating an object of the specified generic type.
         /// </summary>

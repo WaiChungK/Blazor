@@ -231,4 +231,48 @@ module DotNet {
       throw new Error(`The value '${resultIdentifier}' is not a function.`);
     }
   }
+
+  class DotNetObject {    
+    constructor(private _id: string) {
+    }
+
+    public invokeMethod<T>(methodIdentifier: string, ...args: any[]): T {
+      return invokeMethod<T>(
+        'Microsoft.JSInterop',
+        'DotNetDispatcher.InvokeInstanceMethod',
+        this._id,
+        methodIdentifier,
+        JSON.stringify(args));
+    }
+
+    public invokeMethodAsync<T>(methodIdentifier: string, ...args: any[]): Promise<T> {
+      return invokeMethodAsync<T>(
+        'Microsoft.JSInterop',
+        'DotNetDispatcher.InvokeInstanceMethodAsync',
+        this._id,
+        methodIdentifier,
+        JSON.stringify(args));
+    }
+
+    public dispose() {
+      const promise = invokeMethodAsync<any>(
+        'Microsoft.JSInterop',
+        'DotNetDispatcher.ReleaseDotNetObject',
+        this._id);
+      promise.catch(error => console.error(error));
+    }
+  }
+
+  const dotNetObjectValueFormat = /^__dotNetObject\:(\d+)$/;
+  attachReviver(function reviveDotNetObject(key: any, value: any) {
+    if (typeof value === 'string') {
+      const match = value.match(dotNetObjectValueFormat);
+      if (match) {
+        return new DotNetObject(match[1]);
+      }
+    }
+
+    // Unrecognized - let another reviver handle it
+    return value;
+  });
 }

@@ -16,6 +16,8 @@ namespace Microsoft.JSInterop
         private long _nextPendingTaskId = 1; // Start at 1 because zero signals "no response needed"
         private readonly ConcurrentDictionary<long, object> _pendingTasks
             = new ConcurrentDictionary<long, object>();
+        private readonly InteropArgSerializerStrategy _interopArgSerializer
+            = new InteropArgSerializerStrategy();
 
         /// <summary>
         /// Invokes the specified JavaScript function asynchronously.
@@ -36,7 +38,10 @@ namespace Microsoft.JSInterop
 
             try
             {
-                BeginInvokeJS(taskId, identifier, args?.Length > 0 ? Json.Serialize(args) : null);
+                var argsJson = args?.Length > 0
+                    ? Json.Serialize(args, _interopArgSerializer)
+                    : null;
+                BeginInvokeJS(taskId, identifier, argsJson);
                 return tcs.Task;
             }
             catch
@@ -89,5 +94,11 @@ namespace Microsoft.JSInterop
                 TaskGenericsUtil.SetTaskCompletionSourceException(tcs, new JSException(resultOrException.ToString()));
             }
         }
+
+        internal object FindDotNetObject(long dotNetObjectId)
+            => _interopArgSerializer.FindDotNetObject(dotNetObjectId);
+
+        internal void ReleaseDotNetObject(long dotNetObjectId)
+            => _interopArgSerializer.ReleaseDotNetObject(dotNetObjectId);
     }
 }

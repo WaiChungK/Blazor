@@ -32,7 +32,7 @@ namespace Microsoft.JSInterop
             // the targeted method has [JSInvokable]. It is not itself subject to that restriction,
             // because there would be nobody to police that. This method *is* the police.
 
-            var syncResult = InvokeSynchronously(assemblyName, methodIdentifier, argsJson);
+            var syncResult = InvokeSynchronously(assemblyName, methodIdentifier, /* targetInstance */ null, argsJson);
             return syncResult == null ? null : Json.Serialize(syncResult);
         }
 
@@ -51,7 +51,7 @@ namespace Microsoft.JSInterop
             // the targeted method has [JSInvokable]. It is not itself subject to that restriction,
             // because there would be nobody to police that. This method *is* the police.
 
-            var syncResult = InvokeSynchronously(assemblyName, methodIdentifier, argsJson);
+            var syncResult = InvokeSynchronously(assemblyName, methodIdentifier, /* targetInstance */ null, argsJson);
 
             // If there was no callId, the caller does not want to be notified about the result
             if (callId != null)
@@ -80,7 +80,7 @@ namespace Microsoft.JSInterop
             }
         }
 
-        private static object InvokeSynchronously(string assemblyName, string methodIdentifier, string argsJson)
+        private static object InvokeSynchronously(string assemblyName, string methodIdentifier, object targetInstance, string argsJson)
         {
             var (methodInfo, parameterTypes) = GetCachedMethodInfo(assemblyName, methodIdentifier);
 
@@ -110,7 +110,7 @@ namespace Microsoft.JSInterop
 
             try
             {
-                return methodInfo.Invoke(null, suppliedArgs);
+                return methodInfo.Invoke(targetInstance, suppliedArgs);
             }
             catch (Exception ex)
             {
@@ -128,6 +128,51 @@ namespace Microsoft.JSInterop
         [JSInvokable(nameof(DotNetDispatcher) + "." + nameof(EndInvoke))]
         public static void EndInvoke(long asyncHandle, bool succeeded, object resultOrException)
             => ((JSRuntimeBase)JSRuntime.Current).EndInvokeJS(asyncHandle, succeeded, resultOrException);
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="dotNetObjectId"></param>
+        /// <param name="methodIdentifier"></param>
+        /// <param name="argsJson"></param>
+        /// <returns></returns>
+        [JSInvokable(nameof(DotNetDispatcher) + "." + nameof(InvokeInstanceMethod))]
+        public static object InvokeInstanceMethod(long dotNetObjectId, string methodIdentifier, string argsJson)
+        {
+            // DotNetDispatcher only works with JSRuntimeBase instances.
+            var jsRuntime = (JSRuntimeBase)JSRuntime.Current;
+
+            var targetInstance = jsRuntime.FindDotNetObject(dotNetObjectId);
+            var targetAssemblyName = targetInstance.GetType().Assembly.GetName().Name;
+            return InvokeSynchronously(targetAssemblyName, methodIdentifier, targetInstance, argsJson);
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="dotNetObjectId"></param>
+        /// <param name="methodIdentifier"></param>
+        /// <param name="argsJson"></param>
+        /// <returns></returns>
+        [JSInvokable(nameof(DotNetDispatcher) + "." + nameof(InvokeInstanceMethodAsync))]
+        public static Task InvokeInstanceMethodAsync(long dotNetObjectId, string methodIdentifier, string argsJson)
+        {
+            // Enforce the result being a task just so the error is clearer if it isn't
+            var syncResult = InvokeInstanceMethod(dotNetObjectId, methodIdentifier, argsJson);
+            return (Task)syncResult;
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="dotNetObjectId"></param>
+        [JSInvokable(nameof(DotNetDispatcher) + "." + nameof(ReleaseDotNetObject))]
+        public static void ReleaseDotNetObject(long dotNetObjectId)
+        {
+            // DotNetDispatcher only works with JSRuntimeBase instances.
+            var jsRuntime = (JSRuntimeBase)JSRuntime.Current;
+            jsRuntime.ReleaseDotNetObject(dotNetObjectId);
+        }
 
         private static (MethodInfo, Type[]) GetCachedMethodInfo(string assemblyName, string methodIdentifier)
         {
