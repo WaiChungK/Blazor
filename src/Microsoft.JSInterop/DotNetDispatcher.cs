@@ -201,14 +201,33 @@ namespace Microsoft.JSInterop
         {
             // TODO: Consider looking first for assembly-level attributes (i.e., if there are any,
             // only use those) to avoid scanning, especially for framework assemblies.
-            return GetRequiredLoadedAssembly(assemblyName)
+            var result = new Dictionary<string, (MethodInfo, Type[])>();
+            var invokableMethods = GetRequiredLoadedAssembly(assemblyName)
                 .GetExportedTypes()
                 .SelectMany(type => type.GetMethods())
-                .Where(method => method.IsDefined(typeof(JSInvokableAttribute), inherit: false))
-                .ToDictionary(
-                    method => method.GetCustomAttribute<JSInvokableAttribute>(false).Identifier,
-                    method => (method, method.GetParameters().Select(p => p.ParameterType).ToArray())
-                );
+                .Where(method => method.IsDefined(typeof(JSInvokableAttribute), inherit: false));
+            foreach (var method in invokableMethods)
+            {
+                var identifier = method.GetCustomAttribute<JSInvokableAttribute>(false).Identifier ?? method.Name;
+                var parameterTypes = method.GetParameters().Select(p => p.ParameterType).ToArray();
+
+                try
+                {
+                    result.Add(identifier, (method, parameterTypes));
+                }
+                catch (ArgumentException)
+                {
+                    if (result.ContainsKey(identifier))
+                    {
+                        throw new InvalidOperationException($"The assembly '{assemblyName}' contains more than one " +
+                            $"[JSInvokable] method with identifier '{identifier}'. All [JSInvokable] methods within the same " +
+                            $"assembly must have different identifiers. You can pass a custom identifier as a parameter to " +
+                            $"the [JSInvokable] attribute.");
+                    }
+                }
+            }
+
+            return result;
         }
 
         private static Assembly GetRequiredLoadedAssembly(string assemblyName)

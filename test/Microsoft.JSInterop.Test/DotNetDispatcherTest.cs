@@ -95,6 +95,18 @@ namespace Microsoft.JSInterop.Test
         }
 
         [Fact]
+        public void CanInvokeStaticNonVoidMethodWithoutCustomIdentifier()
+        {
+            // Arrange/Act
+            var resultJson = DotNetDispatcher.Invoke(thisAssemblyName, nameof(SomePublicType.InvokableMethodWithoutCustomIdentifier), null);
+            var result = Json.Deserialize<TestDTO>(resultJson);
+
+            // Assert
+            Assert.Equal("InvokableMethodWithoutCustomIdentifier", result.StringVal);
+            Assert.Equal(456, result.IntVal);
+        }
+
+        [Fact]
         public void CanInvokeStaticWithParams()
         {
             // Arrange
@@ -152,6 +164,10 @@ namespace Microsoft.JSInterop.Test
             [JSInvokable("InvocableStaticWithParams")]
             public static TestDTO MyInvocableWithParams(TestDTO dto, int[] incrementAmounts)
                 => new TestDTO { StringVal = dto.StringVal.ToUpperInvariant(), IntVal = dto.IntVal + incrementAmounts.Sum() };
+
+            [JSInvokable]
+            public static TestDTO InvokableMethodWithoutCustomIdentifier()
+                => new TestDTO { StringVal = "InvokableMethodWithoutCustomIdentifier", IntVal = 456 };
         }
 
         public class TestDTO
