@@ -224,6 +224,10 @@ namespace Microsoft.JSInterop
                             $"assembly must have different identifiers. You can pass a custom identifier as a parameter to " +
                             $"the [JSInvokable] attribute.");
                     }
+                    else
+                    {
+                        throw;
+                    }
                 }
             }
 
