@@ -166,9 +166,15 @@ namespace Microsoft.JSInterop
             => ((JSRuntimeBase)JSRuntime.Current).EndInvokeJS(asyncHandle, succeeded, resultOrException);
 
         /// <summary>
-        /// 
+        /// Releases the reference to the specified .NET object. This allows the .NET runtime
+        /// to garbage collect that object if there are no other references to it.
+        ///
+        /// To avoid leaking memory, the JavaScript side code must call this for every .NET
+        /// object it obtains a reference to. The exception is if that object is used for
+        /// the entire lifetime of a given user's session, in which case it is released
+        /// automatically when the JavaScript runtime is disposed.
         /// </summary>
-        /// <param name="dotNetObjectId"></param>
+        /// <param name="dotNetObjectId">The identifier previously passed to JavaScript code.</param>
         [JSInvokable(nameof(DotNetDispatcher) + "." + nameof(ReleaseDotNetObject))]
         public static void ReleaseDotNetObject(long dotNetObjectId)
         {
