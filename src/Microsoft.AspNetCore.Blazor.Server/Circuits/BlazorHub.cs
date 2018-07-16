@@ -51,9 +51,9 @@ namespace Microsoft.AspNetCore.Blazor.Server.Circuits
             CircuitHost = circuitHost;
         }
         
-        public void BeginInvokeDotNetFromJS(string callId, string assemblyName, string methodIdentifier, string argsJson)
+        public void BeginInvokeDotNetFromJS(string callId, string assemblyNameOrDotNetObjectId, string methodIdentifier, string argsJson)
         {
-            EnsureCircuitHost().BeginInvokeDotNetFromJS(callId, assemblyName, methodIdentifier, argsJson);
+            EnsureCircuitHost().BeginInvokeDotNetFromJS(callId, assemblyNameOrDotNetObjectId, methodIdentifier, argsJson);
         }
 
         private async void CircuitHost_UnhandledException(object sender, UnhandledExceptionEventArgs e)
