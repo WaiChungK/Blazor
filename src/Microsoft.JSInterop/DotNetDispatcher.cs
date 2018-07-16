@@ -38,7 +38,7 @@ namespace Microsoft.JSInterop
             {
                 // DotNetDispatcher only works with JSRuntimeBase instances.
                 var jsRuntime = (JSRuntimeBase)JSRuntime.Current;
-                targetInstance = jsRuntime.FindDotNetObject(long.Parse(dotNetObjectId));
+                targetInstance = jsRuntime.ArgSerializerStrategy.FindDotNetObject(long.Parse(dotNetObjectId));
             }
 
             var syncResult = InvokeSynchronously(assemblyName, methodIdentifier, targetInstance, argsJson);
@@ -73,7 +73,7 @@ namespace Microsoft.JSInterop
             if (char.IsDigit(assemblyNameOrDotNetObjectId[0]))
             {
                 var dotNetObjectId = long.Parse(assemblyNameOrDotNetObjectId);
-                targetInstance = jsRuntimeBaseInstance.FindDotNetObject(dotNetObjectId);
+                targetInstance = jsRuntimeBaseInstance.ArgSerializerStrategy.FindDotNetObject(dotNetObjectId);
                 assemblyName = null;
             }
             else
@@ -137,7 +137,8 @@ namespace Microsoft.JSInterop
             }
 
             // Second, convert each supplied value to the type expected by the method
-            var serializerStrategy = SimpleJson.SimpleJson.CurrentJsonSerializerStrategy;
+            var runtime = (JSRuntimeBase)JSRuntime.Current;
+            var serializerStrategy = runtime.ArgSerializerStrategy;
             for (var i = 0; i < suppliedArgsLength; i++)
             {
                 suppliedArgs[i] = serializerStrategy.DeserializeObject(
@@ -180,7 +181,7 @@ namespace Microsoft.JSInterop
         {
             // DotNetDispatcher only works with JSRuntimeBase instances.
             var jsRuntime = (JSRuntimeBase)JSRuntime.Current;
-            jsRuntime.ReleaseDotNetObject(dotNetObjectId);
+            jsRuntime.ArgSerializerStrategy.ReleaseDotNetObject(dotNetObjectId);
         }
 
         private static (MethodInfo, Type[]) GetCachedMethodInfo(string assemblyName, string methodIdentifier)

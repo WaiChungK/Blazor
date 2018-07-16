@@ -58,7 +58,7 @@ module DotNet {
   function invokePossibleInstanceMethod<T>(assemblyName: string | null, methodIdentifier: string, dotNetObjectId: number | null, args: any[]): T {
     const dispatcher = getRequiredDispatcher();
     if (dispatcher.invokeDotNetFromJS) {
-      const argsJson = JSON.stringify(args);
+      const argsJson = JSON.stringify(args, argReplacer);
       return dispatcher.invokeDotNetFromJS(assemblyName, methodIdentifier, dotNetObjectId, argsJson);
     } else {
       throw new Error('The current dispatcher does not support synchronous calls from JS to .NET. Use invokeAsync instead.');
@@ -72,7 +72,7 @@ module DotNet {
     });
 
     try {
-      const argsJson = JSON.stringify(args);
+      const argsJson = JSON.stringify(args, argReplacer);
       getRequiredDispatcher().beginInvokeDotNetFromJS(asyncCallId, assemblyName, methodIdentifier, dotNetObjectId, argsJson);
     } catch(ex) {
       // Synchronous failure
@@ -261,6 +261,10 @@ module DotNet {
         this._id);
       promise.catch(error => console.error(error));
     }
+
+    public serializeAsArg() {
+      return `__dotNetObject:${this._id}`;
+    }
   }
 
   const dotNetObjectValueFormat = /^__dotNetObject\:(\d+)$/;
@@ -275,4 +279,8 @@ module DotNet {
     // Unrecognized - let another reviver handle it
     return value;
   });
+
+  function argReplacer(key: string, value: any) {
+    return value instanceof DotNetObject ? value.serializeAsArg() : value;
+  }
 }
