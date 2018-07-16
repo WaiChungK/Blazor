@@ -9,7 +9,7 @@ namespace Microsoft.JSInterop
     internal class InteropArgSerializerStrategy : PocoJsonSerializerStrategy
     {
         private object _storageLock = new object();
-        private long _nextId;
+        private long _nextId = 1; // Start at 1, because 0 signals "no object"
         private Dictionary<long, object> _trackedObjects = new Dictionary<long, object>();
 
         protected override bool TrySerializeKnownTypes(object input, out object output)

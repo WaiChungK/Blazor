@@ -40,13 +40,7 @@ module DotNet {
    * @returns The result of the operation.
    */
   export function invokeMethod<T>(assemblyName: string, methodIdentifier: string, ...args: any[]): T {
-    const dispatcher = getRequiredDispatcher();
-    if (dispatcher.invokeDotNetFromJS) {
-      const argsJson = JSON.stringify(args);
-      return dispatcher.invokeDotNetFromJS(assemblyName, methodIdentifier, argsJson);
-    } else {
-      throw new Error('The current dispatcher does not support synchronous calls from JS to .NET. Use invokeAsync instead.');
-    }
+    return invokePossibleInstanceMethod<T>(assemblyName, methodIdentifier, null, args);
   }
 
   /**
@@ -58,6 +52,20 @@ module DotNet {
    * @returns A promise representing the result of the operation.
    */
   export function invokeMethodAsync<T>(assemblyName: string, methodIdentifier: string, ...args: any[]): Promise<T> {
+    return invokePossibleInstanceMethodAsync(assemblyName, methodIdentifier, null, args);
+  }
+
+  function invokePossibleInstanceMethod<T>(assemblyName: string | null, methodIdentifier: string, dotNetObjectId: number | null, args: any[]): T {
+    const dispatcher = getRequiredDispatcher();
+    if (dispatcher.invokeDotNetFromJS) {
+      const argsJson = JSON.stringify(args);
+      return dispatcher.invokeDotNetFromJS(assemblyName, methodIdentifier, dotNetObjectId, argsJson);
+    } else {
+      throw new Error('The current dispatcher does not support synchronous calls from JS to .NET. Use invokeAsync instead.');
+    }
+  }
+
+  function invokePossibleInstanceMethodAsync<T>(assemblyName: string | null, methodIdentifier: string, dotNetObjectId: number | null, args: any[]): Promise<T> {
     const asyncCallId = nextAsyncCallId++;
     const resultPromise = new Promise<T>((resolve, reject) => {
       pendingAsyncCalls[asyncCallId] = { resolve, reject };
@@ -65,7 +73,7 @@ module DotNet {
 
     try {
       const argsJson = JSON.stringify(args);
-      getRequiredDispatcher().beginInvokeDotNetFromJS(asyncCallId, assemblyName, methodIdentifier, argsJson);
+      getRequiredDispatcher().beginInvokeDotNetFromJS(asyncCallId, assemblyName, methodIdentifier, dotNetObjectId, argsJson);
     } catch(ex) {
       // Synchronous failure
       completePendingCall(asyncCallId, false, ex);
@@ -108,22 +116,24 @@ module DotNet {
     /**
      * Optional. If implemented, invoked by the runtime to perform a synchronous call to a .NET method.
      * 
-     * @param assemblyName The short name (without key/version or .dll extension) of the .NET assembly holding the method to invoke.
+     * @param assemblyName The short name (without key/version or .dll extension) of the .NET assembly holding the method to invoke. The value may be null when invoking instance methods.
      * @param methodIdentifier The identifier of the method to invoke. The method must have a [JSInvokable] attribute specifying this identifier.
+     * @param dotNetObjectId If given, the call will be to an instance method on the specified DotNetObject. Pass null or undefined to call static methods.
      * @param argsJson JSON representation of arguments to pass to the method.
      * @returns The result of the invocation.
      */
-    invokeDotNetFromJS?(assemblyName: string, methodIdentifier: string, argsJson: string): any;
+    invokeDotNetFromJS?(assemblyName: string | null, methodIdentifier: string, dotNetObjectId: number | null, argsJson: string): any;
 
     /**
      * Invoked by the runtime to begin an asynchronous call to a .NET method.
      *
      * @param callId A value identifying the asynchronous operation. This value should be passed back in a later call from .NET to JS.
-     * @param assemblyName The short name (without key/version or .dll extension) of the .NET assembly holding the method to invoke.
+     * @param assemblyName The short name (without key/version or .dll extension) of the .NET assembly holding the method to invoke. The value may be null when invoking instance methods.
      * @param methodIdentifier The identifier of the method to invoke. The method must have a [JSInvokable] attribute specifying this identifier.
+     * @param dotNetObjectId If given, the call will be to an instance method on the specified DotNetObject. Pass null to call static methods.
      * @param argsJson JSON representation of arguments to pass to the method.
      */
-    beginInvokeDotNetFromJS(callId: number, assemblyName: string, methodIdentifier: string, argsJson: string): void;
+    beginInvokeDotNetFromJS(callId: number, assemblyName: string | null, methodIdentifier: string, dotNetObjectId: number | null, argsJson: string): void;
   }
 
   /**
@@ -172,8 +182,8 @@ module DotNet {
         // On completion, dispatch result back to .NET
         // Not using "await" because it codegens a lot of boilerplate
         promise.then(
-          result => getRequiredDispatcher().beginInvokeDotNetFromJS(0, 'Microsoft.JSInterop', 'DotNetDispatcher.EndInvoke', JSON.stringify([asyncHandle, true, result])),
-          error => getRequiredDispatcher().beginInvokeDotNetFromJS(0, 'Microsoft.JSInterop', 'DotNetDispatcher.EndInvoke', JSON.stringify([asyncHandle, false, formatError(error)]))
+          result => getRequiredDispatcher().beginInvokeDotNetFromJS(0, 'Microsoft.JSInterop', 'DotNetDispatcher.EndInvoke', null, JSON.stringify([asyncHandle, true, result])),
+          error => getRequiredDispatcher().beginInvokeDotNetFromJS(0, 'Microsoft.JSInterop', 'DotNetDispatcher.EndInvoke', null, JSON.stringify([asyncHandle, false, formatError(error)]))
         );
       }
     },
@@ -233,25 +243,15 @@ module DotNet {
   }
 
   class DotNetObject {    
-    constructor(private _id: string) {
+    constructor(private _id: number) {
     }
 
     public invokeMethod<T>(methodIdentifier: string, ...args: any[]): T {
-      return invokeMethod<T>(
-        'Microsoft.JSInterop',
-        'DotNetDispatcher.InvokeInstanceMethod',
-        this._id,
-        methodIdentifier,
-        JSON.stringify(args));
+      return invokePossibleInstanceMethod<T>(null, methodIdentifier, this._id, args);
     }
 
     public invokeMethodAsync<T>(methodIdentifier: string, ...args: any[]): Promise<T> {
-      return invokeMethodAsync<T>(
-        'Microsoft.JSInterop',
-        'DotNetDispatcher.InvokeInstanceMethodAsync',
-        this._id,
-        methodIdentifier,
-        JSON.stringify(args));
+      return invokePossibleInstanceMethodAsync<T>(null, methodIdentifier, this._id, args);
     }
 
     public dispose() {
@@ -268,7 +268,7 @@ module DotNet {
     if (typeof value === 'string') {
       const match = value.match(dotNetObjectValueFormat);
       if (match) {
-        return new DotNetObject(match[1]);
+        return new DotNetObject(parseInt(match[1]));
       }
     }
 

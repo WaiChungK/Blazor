@@ -23,16 +23,25 @@ namespace Microsoft.JSInterop
         /// </summary>
         /// <param name="assemblyName">The assembly containing the method to be invoked.</param>
         /// <param name="methodIdentifier">The identifier of the method to be invoked. The method must be annotated with a <see cref="JSInvokableAttribute"/> matching this identifier string.</param>
+        /// <param name="dotNetObjectId">For instance method calls, identifies the target object.</param>
         /// <param name="argsJson">A JSON representation of the parameters.</param>
         /// <returns>A JSON representation of the return value, or null.</returns>
-        public static string Invoke(string assemblyName, string methodIdentifier, string argsJson)
+        public static string Invoke(string assemblyName, string methodIdentifier, string dotNetObjectId, string argsJson)
         {
             // This method doesn't need [JSInvokable] because the platform is responsible for having
             // some way to dispatch calls here. The logic inside here is the thing that checks whether
             // the targeted method has [JSInvokable]. It is not itself subject to that restriction,
             // because there would be nobody to police that. This method *is* the police.
 
-            var syncResult = InvokeSynchronously(assemblyName, methodIdentifier, /* targetInstance */ null, argsJson);
+            var targetInstance = (object)null;
+            if (dotNetObjectId != null)
+            {
+                // DotNetDispatcher only works with JSRuntimeBase instances.
+                var jsRuntime = (JSRuntimeBase)JSRuntime.Current;
+                targetInstance = jsRuntime.FindDotNetObject(long.Parse(dotNetObjectId));
+            }
+
+            var syncResult = InvokeSynchronously(assemblyName, methodIdentifier, targetInstance, argsJson);
             return syncResult == null ? null : Json.Serialize(syncResult);
         }
 
@@ -40,18 +49,40 @@ namespace Microsoft.JSInterop
         /// Receives a call from JS to .NET, locating and invoking the specified method asynchronously.
         /// </summary>
         /// <param name="callId">A value identifying the asynchronous call that should be passed back with the result, or null if no result notification is required.</param>
-        /// <param name="assemblyName">The assembly containing the method to be invoked.</param>
+        /// <param name="assemblyNameOrDotNetObjectId">The assembly containing the method to be invoked, or for instance method calls, identifies the target object.</param>
         /// <param name="methodIdentifier">The identifier of the method to be invoked. The method must be annotated with a <see cref="JSInvokableAttribute"/> matching this identifier string.</param>
         /// <param name="argsJson">A JSON representation of the parameters.</param>
         /// <returns>A JSON representation of the return value, or null.</returns>
-        public static void BeginInvoke(string callId, string assemblyName, string methodIdentifier, string argsJson)
+        public static void BeginInvoke(string callId, string assemblyNameOrDotNetObjectId, string methodIdentifier, string argsJson)
         {
             // This method doesn't need [JSInvokable] because the platform is responsible for having
             // some way to dispatch calls here. The logic inside here is the thing that checks whether
             // the targeted method has [JSInvokable]. It is not itself subject to that restriction,
             // because there would be nobody to police that. This method *is* the police.
 
-            var syncResult = InvokeSynchronously(assemblyName, methodIdentifier, /* targetInstance */ null, argsJson);
+            // DotNetDispatcher only works with JSRuntimeBase instances.
+            // If the developer wants to use a totally custom IJSRuntime, then their JS-side
+            // code has to implement its own way of returning async results.
+            var jsRuntimeBaseInstance = (JSRuntimeBase)JSRuntime.Current;
+
+            // Figure out whether 'assemblyNameOrDotNetObjectId' is the assembly name or the instance ID
+            // We only need one for any given call. This helps to work around the limitation that we can
+            // only pass a maximum of 4 args in a call from JS to Mono WebAssembly.
+            object targetInstance;
+            string assemblyName;
+            if (char.IsDigit(assemblyNameOrDotNetObjectId[0]))
+            {
+                var dotNetObjectId = long.Parse(assemblyNameOrDotNetObjectId);
+                targetInstance = jsRuntimeBaseInstance.FindDotNetObject(dotNetObjectId);
+                assemblyName = null;
+            }
+            else
+            {
+                targetInstance = null;
+                assemblyName = assemblyNameOrDotNetObjectId;
+            }
+
+            var syncResult = InvokeSynchronously(assemblyName, methodIdentifier, targetInstance, argsJson);
 
             // If there was no callId, the caller does not want to be notified about the result
             if (callId != null)
@@ -61,11 +92,6 @@ namespace Microsoft.JSInterop
                 var task = syncResult is Task syncResultTask ? syncResultTask : Task.FromResult(syncResult);
                 task.ContinueWith(completedTask =>
                 {
-                    // DotNetDispatcher only works with JSRuntimeBase instances.
-                    // If the developer wants to use a totally custom IJSRuntime, then their JS-side
-                    // code has to implement its own way of returning async results.
-                    var jsRuntimeBaseInstance = (JSRuntimeBase)JSRuntime.Current;
-
                     try
                     {
                         var result = TaskGenericsUtil.GetTaskResult(completedTask);
@@ -82,6 +108,16 @@ namespace Microsoft.JSInterop
 
         private static object InvokeSynchronously(string assemblyName, string methodIdentifier, object targetInstance, string argsJson)
         {
+            if (targetInstance != null)
+            {
+                if (assemblyName != null)
+                {
+                    throw new ArgumentException($"For instance method calls, '{nameof(assemblyName)}' should be null. Value received: '{assemblyName}'.");
+                }
+
+                assemblyName = targetInstance.GetType().Assembly.GetName().Name;
+            }
+
             var (methodInfo, parameterTypes) = GetCachedMethodInfo(assemblyName, methodIdentifier);
 
             // There's no direct way to say we want to deserialize as an array with heterogenous
@@ -128,39 +164,6 @@ namespace Microsoft.JSInterop
         [JSInvokable(nameof(DotNetDispatcher) + "." + nameof(EndInvoke))]
         public static void EndInvoke(long asyncHandle, bool succeeded, object resultOrException)
             => ((JSRuntimeBase)JSRuntime.Current).EndInvokeJS(asyncHandle, succeeded, resultOrException);
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="dotNetObjectId"></param>
-        /// <param name="methodIdentifier"></param>
-        /// <param name="argsJson"></param>
-        /// <returns></returns>
-        [JSInvokable(nameof(DotNetDispatcher) + "." + nameof(InvokeInstanceMethod))]
-        public static object InvokeInstanceMethod(long dotNetObjectId, string methodIdentifier, string argsJson)
-        {
-            // DotNetDispatcher only works with JSRuntimeBase instances.
-            var jsRuntime = (JSRuntimeBase)JSRuntime.Current;
-
-            var targetInstance = jsRuntime.FindDotNetObject(dotNetObjectId);
-            var targetAssemblyName = targetInstance.GetType().Assembly.GetName().Name;
-            return InvokeSynchronously(targetAssemblyName, methodIdentifier, targetInstance, argsJson);
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="dotNetObjectId"></param>
-        /// <param name="methodIdentifier"></param>
-        /// <param name="argsJson"></param>
-        /// <returns></returns>
-        [JSInvokable(nameof(DotNetDispatcher) + "." + nameof(InvokeInstanceMethodAsync))]
-        public static Task InvokeInstanceMethodAsync(long dotNetObjectId, string methodIdentifier, string argsJson)
-        {
-            // Enforce the result being a task just so the error is clearer if it isn't
-            var syncResult = InvokeInstanceMethod(dotNetObjectId, methodIdentifier, argsJson);
-            return (Task)syncResult;
-        }
 
         /// <summary>
         /// 
